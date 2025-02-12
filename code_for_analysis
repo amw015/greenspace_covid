@@ -1,0 +1,715 @@
+library(INLA)
+library(ggplot2)
+
+# Read the CSV file into a dataframe
+
+
+data <- read.csv("C:/Users/n12082856/Downloads/Covid_paper_data/final_covid_data.csv")
+
+
+# Convert the Date column to Date type
+data$Date <- as.Date(data$Date, format="%d/%m/%Y")
+
+
+# Check the first few rows of the data
+head(data)
+
+
+# Ensure the dependent variable is numeric
+data$parks_percent_change_from_baseline_average <- as.numeric(data$parks_percent_change_from_baseline_average)
+
+# Set the temporal index based on Date (e.g., "Day of the year" or simple sequential index)
+data$time_index <- as.numeric(data$Date - min(data$Date)) + 1
+
+# Check the data after preprocessing
+head(data)
+
+
+# Minimal Model - here we test the minimal model, using just park visitation 
+
+ModelMinimal <- parks_percent_change_from_baseline_average ~ 1
+
+result_minimal <- inla(ModelMinimal, data=data, family = "gaussian",
+                       control.predictor = list(compute=TRUE),
+                       control.inla = list(verbose=TRUE),
+                       control.compute = list(dic = TRUE))
+
+summary(result_minimal)
+# Results Marginal log-likelihood -32726.83, DIC 65417.72, Saturated DIC 6750.10
+
+
+
+
+# Model A - test different models of park visitation, starting with just the park visitation, temperature, and time
+
+
+summary(data$Temperature)  
+summary(data$parks_percent_change_from_baseline_average)  
+
+
+ModelA <- parks_percent_change_from_baseline_average ~
+  Temperature + f(time_index, model="ar1")
+
+result_A <- inla(ModelA, data=data, family="gaussian", 
+               control.predictor = list(compute=TRUE), 
+               control.inla = list(verbose=TRUE),
+               control.compute = list(dic = TRUE))
+                
+
+summary(result_A)
+# Results: Marginal log-likelihood -31568.45, DIC 63086.66, Saturated DIC 6752.98
+
+
+
+# Model B - test the model with random walk of order 1
+
+ModelB <- parks_percent_change_from_baseline_average ~
+  Temperature + f(time_index, model="rw1")
+
+result_B <- inla(ModelB, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_B)
+# Results: Marginal log-liklihood -30851.14, DIC 61443.79, Saturated DIC 6915.50
+
+
+
+
+# Model C - test the model with random walk of order 2
+
+ModelC <- parks_percent_change_from_baseline_average ~
+  Temperature + f(time_index, model="rw2")
+
+result_C <- inla(ModelC, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_C)
+# Results: Marginal log-liklihood - -30892.64, DIC 61551.17, Saturated DIC 6796.92
+
+# Based on marginal log-likelihood and DIC it appears that a model with a time index of random walk 1 is best
+
+
+# Model D - Now we will add another variable to the model, in this case rainfall, and keep the time index of random walk 1
+
+ModelD <- parks_percent_change_from_baseline_average ~
+  Temperature + Rainfall + f(time_index, model="rw1")
+
+result_D <- inla(ModelD, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_D)
+# Results: Marginal log-likelihood -30828.45, DIC 61392.41, Saturated DIC 6901.78
+# Accounting for model fit and complexity using marginal log likelihood and DIC, we can see adding rainfall improved the model
+# At this point we have tested a hypothesis tht temperature and rainfall will influence park visitation, finding that rainfall negatively impacts visiation and temperature positively impacts park visitation
+
+
+
+# Model E - Now we will add seasonality to the model to account for seasonal differences in our data, as this has also been a strong predictor of park visitation and we will test this
+
+# First we need to add season to the data set with the following code
+
+data$Season <- factor(
+  ifelse(format(data$Date, "%m") %in% c("12", "01", "02"), "Summer",  # Dec, Jan, Feb -> Summer
+         ifelse(format(data$Date, "%m") %in% c("03", "04", "05"), "Autumn",  # Mar, Apr, May -> Autumn
+                ifelse(format(data$Date, "%m") %in% c("06", "07", "08"), "Winter",  # Jun, Jul, Aug -> Winter
+                       ifelse(format(data$Date, "%m") %in% c("09", "10", "11"), "Spring", "Unknown")))))
+
+
+head(data)
+
+# Now, as we have grouped each of the months into a season, we can add season to the model
+
+ModelE <- parks_percent_change_from_baseline_average ~
+  Temperature + Season + Rainfall + f(time_index, model="rw1")
+
+result_E <- inla(ModelE, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_E)
+# Results: Marginal log likelihood -30834.33, DIC 61393.27, Saturated DIC 6911.27
+
+# Adding Seasonality did not improve the model compared to the previous model, so perhaps it is best to leave out as we also include temperature and rainfall which may already account for seasonality
+
+
+
+# Model F - We remove Seasonality and add median age to the model
+
+
+ModelF <- parks_percent_change_from_baseline_average ~
+  Temperature + Age + Rainfall + f(time_index, model="rw1")
+
+result_F <- inla(ModelF, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_F)
+#Results Marginal log likelihood -30609.35, DIC 60957.61, Saturated DIC 6903.83
+# so this improves the model compared to before according to MLL, as we should keep age in the model, but not accoridng to DIC
+
+
+
+# Model G - Keeping age, we now add gender into the model
+
+ModelG <- parks_percent_change_from_baseline_average ~
+  Temperature + Age + Gender + Rainfall + f(time_index, model="rw1")
+
+result_G <- inla(ModelG, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_G)
+# Results: the model was improved according to DIC, so we now include gender
+
+# Model H - Removing age, we add the amount of greenspace to the next model
+
+ModelH <- parks_percent_change_from_baseline_average ~
+  Temperature + Age + Gender + Greenspace + Rainfall + f(time_index, model="rw1")
+
+result_H <- inla(ModelH, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_H)
+# Results Marginal log-likelihood -30552.23, DIC 60812.02, Saturated DIC 6915.10, this improves the model and so is added
+
+
+# Model I - Keeping greenspace, now we add median income
+
+ModelI <- parks_percent_change_from_baseline_average ~
+  Temperature + Age + Gender + Income + Greenspace + Rainfall + f(time_index, model="rw1")
+
+result_I <- inla(ModelI, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_I)
+# Results Marginal log-likelihood -30421.62, DIC 60516.46, Saturated DIC 6939.56 this improves the model and so is added
+
+# At this point we have added the socio-demographic and biophysical characteristics we wanted to test based on the hypotheses, so we can now add government restrictions
+
+# Model J - the total model now with government restrictions, in this case GovernmentResponseIndex
+
+
+ModelJ <- parks_percent_change_from_baseline_average ~
+  Temperature + Age + Gender + Income + GovernmentResponseIndex + Greenspace + Rainfall + f(time_index, model="rw1")
+
+result_J <- inla(ModelJ, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_J)
+# Results Marginal log-likelihood -30426.60, DIC 60518.22, Saturated DIC 6934.39, while this does not improve the model, it only slightly worsens it tests one of our hypotheses
+
+
+
+# Now we will add education level to the model
+
+ModelX <- parks_percent_change_from_baseline_average ~
+  Temperature + Age + Education + Gender + Income + GovernmentResponseIndex + Greenspace + Rainfall + f(time_index, model="rw1")
+
+result_X <- inla(ModelX, data=data, family="gaussian", 
+                 control.predictor = list(compute=TRUE), 
+                 control.inla = list(verbose=TRUE),
+                 control.compute = list(dic = TRUE))
+
+
+summary(result_X)
+
+# Results: this improves the model slightly accordung to DIC, so we add it to the model
+
+
+# Model K - Now to test the hypothesis that the amount of greenspace mitigate the impacts of government restrictions on greenspace use, we need to add the interaction term between greenspace and government restrictions
+# Variables have to be scaled as the mdoel does not work with the interaction term if not
+
+
+
+
+
+# Scale continuous variables
+data$Temperature_scaled <- scale(data$Temperature)
+data$Age_scaled <- scale(data$Age)
+data$Income_scaled <- scale(data$Income)
+data$Greenspace_scaled <- scale(data$Greenspace)
+data$Rainfall_scaled <- scale(data$Rainfall)
+data$GovernmentResponseIndex_scaled <- scale(data$GovernmentResponseIndex)
+data$Gender_scaled <- scale(data$Gender)
+data$Education_scaled <- scale(data$Education)
+
+
+ModelK_scaled <- parks_percent_change_from_baseline_average ~
+  Temperature_scaled + Age_scaled + Education_scaled + Income_scaled + 
+  GovernmentResponseIndex_scaled + Greenspace_scaled + Rainfall_scaled + 
+  f(time_index, model="rw1") + GovernmentResponseIndex_scaled * Greenspace_scaled
+
+result_K_scaled <- inla(ModelK_scaled, data=data, family="gaussian", 
+                        control.predictor = list(compute=TRUE), 
+                        control.inla = list(verbose=TRUE), 
+                        control.compute = list(dic=TRUE, config = TRUE))
+
+summary(result_K_scaled)
+
+# Results Marginal log-likelihood -30318.26, DIC 60,323.76, Saturated DIC 6946.61
+
+
+# Flip the interaction term
+
+ModelFlip_scaled <- parks_percent_change_from_baseline_average ~
+  Temperature_scaled + Age_scaled + Education_scaled + Income_scaled + 
+  GovernmentResponseIndex_scaled + Greenspace_scaled + Rainfall_scaled + 
+  f(time_index, model="rw1") + Greenspace_scaled * GovernmentResponseIndex_scaled
+
+result_Flip_scaled <- inla(ModelFlip_scaled, data=data, family="gaussian", 
+                        control.predictor = list(compute=TRUE), 
+                        control.inla = list(verbose=TRUE), 
+                        control.compute = list(dic=TRUE))
+
+summary(result_Flip_scaled)
+
+
+
+
+# Model L - Now lets test a model using the different cities as a variable to see if responses between cities were different
+
+
+data$Mapped_CityName <- as.factor(data$Mapped_CityName)
+
+ModelL <- parks_percent_change_from_baseline_average ~
+  Temperature_scaled + Ave_Median_scaled + Mapped_CityName + Median.Income_scaled + 
+  GovernmentResponseIndex_scaled + Sum_AREASQ_scaled + Rainfall_scaled + 
+  f(time_index, model="rw1") + GovernmentResponseIndex_scaled * Sum_AREASQ_scaled
+
+result_L <- inla(ModelL, data=data, family="gaussian", 
+                        control.predictor = list(compute=TRUE), 
+                        control.inla = list(verbose=TRUE), 
+                        control.compute = list(dic=TRUE))
+
+summary(result_L)
+
+
+levels(data$Mapped_CityName)
+
+# Results Marginal Log likelihood -30092.55, DIC 59811.86, Saturated DIC 6981.98
+
+# This shows the differences in park vitiation between cities, Hobart had the largest decrease in park visitation, followed by Perth, then Brisbane
+# Darwin showed an increase in park visitation, followed by Sydney and then Melbourne with a 2.6 increase
+
+
+
+# Test the model for each of the cities individually
+
+
+# Identify unique cities
+cities <- unique(data$CityName)
+
+# Define a function that fits the model for each city
+fit_model_for_city <- function(city, data) {
+  # Subset the data for the specific city
+  city_data <- subset(data, CityName == city)
+  
+  # Define the model for each city
+  model <- parks_percent_change_from_baseline_average ~ 
+    Temperature_scaled + Age_scaled + Education_scaled + Income_scaled + 
+    GovernmentResponseIndex_scaled + Greenspace_scaled + Rainfall_scaled + 
+    f(time_index, model = "rw1") + 
+    GovernmentResponseIndex_scaled * Greenspace_scaled
+  
+  # Fit the model using INLA
+  result <- inla(model, data = city_data, family = "gaussian", 
+                 control.predictor = list(compute = TRUE), 
+                 control.inla = list(verbose = TRUE), 
+                 control.compute = list(dic = TRUE, config = TRUE))
+  
+  return(result)
+}
+
+# Apply the function for each city and store the results in a list
+results <- lapply(cities, fit_model_for_city, data = data)
+
+# Now, you can access the results for each city from the 'results' list
+
+# For example, to get the result for the first city:
+results[[1]]
+
+# Or to get the result for a specific city by name:
+results[[which(cities == "CityNameHere")]]
+
+
+
+# Extract key statistics (e.g., coefficients and DIC) from each city's result
+extract_results <- function(result) {
+  # Extract fixed effects (coefficients)
+  fixed_effects <- result$summary.fixed[, c("mean", "sd", "0.025quant", "0.975quant")]
+  
+  # Extract DIC (Deviance Information Criterion)
+  dic <- result$dic$dic
+  
+  # Combine the results into a data frame
+  result_summary <- data.frame(fixed_effects, DIC = dic)
+  
+  return(result_summary)
+}
+
+# Apply the function to each city's model results and store in a list
+comparison_results <- lapply(results, extract_results)
+
+# Now you have a list of result summaries for each city
+# Convert this list into a single data frame for easy comparison
+comparison_table <- do.call(rbind, comparison_results)
+
+# Add a column for the city name
+comparison_table$City <- rep(cities, each = nrow(comparison_results[[1]]))
+
+# View the comparison table
+print(comparison_table)
+
+
+# Graph of the effects between cities
+
+# Load necessary libraries
+library(ggplot2)
+library(reshape2)
+
+# Create the data frame for fixed effects across cities
+fixed_effects_data <- data.frame(
+  FixedEffect = c("(Intercept)", "Temperature_scaled", "Age_scaled", "Education_scaled", "Income_scaled", 
+                  "GovernmentResponseIndex_scaled", "Greenspace_scaled", "Rainfall_scaled", "GovernmentResponseIndex_scaled:Greenspace_scaled"),
+  GreaterSydney = c(-1.420431, 20.45922, 1.438521e-12, -7.317845e-14, -4.659816e-13, 0.1892583, 2.933329e-11, -1.264893, 0.4488457),
+  GreaterMelbourne = c(-2.792243, 8.777103, -2.223841e-12, -6.390319e-12, 7.091126e-13, -3.351331, -4.066695e-13, -6.509319, 0.1395913),
+  GreaterPerth = c(-11.56905, 2.889506, -2.566675e-11, 2.246332e-11, -7.109889e-11, -4.818478, -1.783890e-11, -8.71187, -0.6368676),
+  GreaterBrisbane = c(-8.022453, 14.7185, -5.097906e-12, -8.640351e-13, -1.383228e-11, -7.848963, 1.682266e-11, -2.120936, -2.666875),
+  GreaterHobart = c(-24.15353, 9.324703, 1.65819e-10, -9.121962e-11, -7.720933e-10, -3.739413, -1.260707e-10, -2.719726, 3.215539),
+  GreaterAdelaide = c(-9.684389, 4.799629, -8.39478e-11, 8.38551e-12, -6.434368e-11, -4.314863, 1.237536e-12, -6.479282, 3.754908),
+  GreaterDarwin = c(35.03887, 2.779408, 5.547068e-11, -8.404438e-11, -4.296978e-12, -4.074228, 1.95247e-11, -1.591161, 3.359364),
+  AustralianCapitalTerritory = c(6.069149, 14.28041, -1.18026e-11, 9.759504e-12, -3.452435e-12, -1.580291, -1.501815e-12, -8.788667, 0.3948669)
+)
+
+# Reshape data into long format for ggplot
+fixed_effects_long <- melt(fixed_effects_data, id.vars = "FixedEffect", variable.name = "City", value.name = "FixedEffectValue")
+
+
+
+install.packages("RColorBrewer")
+
+
+
+library(ggplot2)
+library(RColorBrewer)
+
+# Create a new column for positive or negative values
+fixed_effects_long$EffectSign <- ifelse(fixed_effects_long$FixedEffectValue > 0, "Positive", "Negative")
+
+
+ggplot(fixed_effects_long, aes(x = City, y = FixedEffect, fill = EffectSign)) +
+  geom_tile(color = "white") +  # Adds a border around each tile
+  scale_fill_brewer(palette = "Greens", direction = 1) +  # Greens palette for positive values
+  theme_minimal() +
+  labs(
+    title = "", 
+    x = "",  
+    y = "",
+    fill = "Coefficient Direction"  # Renaming the legend title
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis text for readability
+    legend.position = "top",  # Keep the entire legend above the plot
+    legend.title = element_text(hjust = 0),  # Left-align the legend title
+    legend.title.align = 0,  # Ensures the title aligns to the left of the legend
+    legend.key.size = unit(0.6, "cm"),  # Optional: Adjust the size of the legend boxes
+    axis.ticks.x = element_line(linewidth = 0.5),  # Add ticks on the x-axis
+    axis.ticks.y = element_line(linewidth = 0.5)   # Add ticks on the y-axis
+  ) +
+  scale_y_discrete(labels = function(x) gsub("_scaled", "", x))  # Remove "_scaled" from y-axis labels
+
+
+
+
+
+
+
+
+# Conduct posterior predictive checks on the final chosen model, Model K
+
+
+
+# Posterior checks
+
+# Simulate posterior samples
+n_samples <- 1000  # Number of posterior samples you want
+posterior_samples <- inla.posterior.sample(n_samples, result_K_scaled)
+
+# Generate the posterior predictive distribution
+# We can simulate the fitted values (i.e., y_hat) from the posterior
+# Generate the posterior predictive distribution
+# Simulating the posterior predictive distribution
+# Step 1: Check and handle non-finite values in observed values and posterior predictive values
+
+# Remove non-finite values from the observed data
+observed_values <- data$parks_percent_change_from_baseline_average
+observed_values <- observed_values[is.finite(observed_values)]
+
+# Remove non-finite values from the posterior predictive values
+# Flatten the posterior predictive values list into a vector
+posterior_predictive_values <- unlist(sapply(posterior_samples, function(sample) {
+  # Extract the latent values or predicted outcomes
+  y_hat <- sample$latent  # Adjust this depending on your model
+  return(y_hat)
+}))
+posterior_predictive_values <- posterior_predictive_values[is.finite(posterior_predictive_values)]
+
+# Step 2: Set valid xlim based on the range of observed and posterior predictive values
+x_range <- range(c(observed_values, posterior_predictive_values), na.rm = TRUE)
+
+# Step 3: Create the histogram with valid xlim
+hist(posterior_predictive_values, 
+     main = "Posterior Predictive Check", 
+     xlab = "Predicted Values", 
+     col = rgb(0, 0, 1, 0.5),  # Transparent blue for predictive values
+     breaks = 30,  # Adjust to match your data distribution
+     xlim = x_range)  # Ensure both are in the same range
+
+# Add a vertical line at the observed mean (or median) for reference
+abline(v = mean(observed_values), col = "red", lwd = 2)  # Red line for the observed mean
+
+# Optionally add a line for the predicted mean (posterior predictive mean)
+posterior_mean <- mean(posterior_predictive_values)
+abline(v = posterior_mean, col = "green", lwd = 2, lty = 2)  # Green dashed line for predicted mean
+
+
+observed_mean <- mean(observed_values)
+posterior_mean <- mean(posterior_predictive_values)
+print(paste("Observed mean:", observed_mean))
+print(paste("Posterior predictive mean:", posterior_mean))
+print(paste("Difference between means:", abs(observed_mean - posterior_mean)))
+
+
+
+# Create the histogram with a nicer color palette (orange and light blue)
+hist(posterior_predictive_values, 
+     xlab = "Predicted Values", 
+     col = rgb(0.9, 0.6, 0.2, 0.5),  # Light orange (semi-transparent)
+     border = "white",  # White border for the bars
+     breaks = 30,  # Adjust to match your data distribution
+     xlim = x_range,  # Ensure both are in the same range
+     main = NULL)  # No title
+
+# Add a vertical line at the observed mean (or median) for reference
+abline(v = mean(observed_values), col = "red", lwd = 2)  # Red line for the observed mean
+
+# Optionally add a line for the predicted mean (posterior predictive mean)
+posterior_mean <- mean(posterior_predictive_values)
+abline(v = posterior_mean, col = "lightblue", lwd = 2, lty = 2)  # Light blue dashed line for predicted mean
+
+# Print the observed and posterior predictive means and their difference
+observed_mean <- mean(observed_values)
+posterior_mean <- mean(posterior_predictive_values)
+
+print(paste("Observed mean:", observed_mean))
+print(paste("Posterior predictive mean:", posterior_mean))
+print(paste("Difference between means:", abs(observed_mean - posterior_mean)))
+
+
+
+
+# The observed mean is seen to be -3.441 while the predicted mean is -3.1711, which is a difference of 0.2699
+
+
+
+# Compute the density for observed and posterior predictive values
+observed_density <- density(observed_values)
+posterior_predictive_density <- density(posterior_predictive_values)
+
+# Create the plot with adjusted y-limits and no border
+plot(observed_density, col = "orange", lwd = 2, 
+     main = "", xlab = "Values", 
+     ylim = c(0, max(c(observed_density$y, posterior_predictive_density$y)) * 1.1),  # Increase y-limits by 10%
+     bty = "n")  # Remove the border
+
+# Add the density plot for posterior predictive values
+lines(posterior_predictive_density, col = "lightblue", lwd = 2, lty = 2)
+
+# Add legend
+legend("topright", legend = c("Observed", "Posterior Predictive"), 
+       col = c("orange", "lightblue"), lwd = 2, lty = c(1, 2))
+
+
+
+
+
+# Create a scatter plot of observed values vs. posterior predictive values
+plot(observed_values, posterior_predictive_values, 
+     col = rgb(0.9, 0.6, 0.2, 0.5),  # Semi-transparent orange points
+     pch = 16,  # Solid circle markers
+     xlab = "Observed Values", 
+     ylab = "Posterior Predictive Values", 
+     main = "Scatter Plot of Observed vs. Posterior Predictive Values", 
+     bty = "n")  # Remove the border
+
+# Optionally, add a line to show the identity line (where observed = predicted)
+abline(a = 0, b = 1, col = "lightblue", lwd = 2, lty = 2)  # Identity line (y = x)
+
+# Add a legend
+legend("topright", legend = c("Data Points", "Identity Line"), 
+       col = c(rgb(0.9, 0.6, 0.2, 0.5), "lightblue"), pch = c(16, NA), 
+       lwd = c(NA, 2), lty = c(NA, 2))
+
+
+
+
+
+
+
+
+
+
+
+# Compute the predictive p-values for the observed data
+ppp_values <- apply(posterior_predictive_values, 2, function(pred) {
+  mean(abs(pred - mean(pred)) >= abs(observed_values - mean(observed_values)))
+})
+
+# Summary of the p-values
+summary(ppp_values)
+
+# Sensitivity Analysis
+
+control.fixed = list(prior = "normal", param = c(0, 1))  # Example for a normal prior for fixed effects
+
+
+# Example prior specification
+new_prior <- list(prior = "normal", param = c(0, 1))  # Prior for fixed effects
+
+# Fit the model with the new prior
+sensitivity_model <- inla(result, data = data, family = "gaussian", 
+                          control.fixed = new_prior, control.compute = list(dic = TRUE))
+
+
+
+
+
+# Extract fixed effects coefficients and standard deviations (SE)
+fixed_effects <- result$summary.fixed
+
+# Calculate the p-values using a z-test (mean / standard deviation)
+fixed_effects$p_value <- 2 * (1 - pnorm(abs(fixed_effects$mean / fixed_effects$sd)))
+
+# Print the summary table with coefficients, SE, and p-values
+fixed_effects_table <- data.frame(
+  Variable = rownames(fixed_effects),
+  Coefficient = fixed_effects$mean,
+  SE = fixed_effects$sd,
+  P_Value = fixed_effects$p_value
+)
+
+# View the table with coefficients, SE, and p-values
+print(fixed_effects_table)
+
+
+
+
+
+
+# R2 value, this can be done for any of the models above you just have to substitute in the correct model name
+
+# Extract the fitted values (predictions) from the result object
+predictions <- result_K_scaled$summary.fitted.values$mean
+
+# Extract the observed values (the dependent variable from the data)
+observed_values <- data$parks_percent_change_from_baseline_average
+
+# Compute the residuals (difference between observed and predicted)
+residuals <- observed_values - predictions
+
+# Compute the sum of squared residuals (SSR)
+SSR <- sum(residuals^2)
+
+# Compute the total sum of squares (SST)
+SST <- sum((observed_values - mean(observed_values))^2)
+
+# Compute R²
+r_squared <- 1 - (SSR / SST)
+print(r_squared)
+
+
+length(observed_values)  # Length of the observed values
+length(predictions)      # Length of the predicted values
+
+
+# Check for NA values in observed and predicted values
+sum(is.na(observed_values))  # Count of NA values in observed data
+sum(is.na(predictions))      # Count of NA values in predictions
+
+# Remove NAs from observed values and predictions
+complete_cases <- complete.cases(observed_values, predictions)
+observed_values_clean <- observed_values[complete_cases]
+predictions_clean <- predictions[complete_cases]
+
+residuals_clean <- observed_values_clean - predictions_clean
+
+# Compute the sum of squared residuals (SSR)
+SSR <- sum(residuals_clean^2)
+
+# Compute the total sum of squares (SST)
+SST <- sum((observed_values_clean - mean(observed_values_clean))^2)
+
+# Compute R²
+r_squared <- 1 - (SSR / SST)
+print(r_squared)
+
+# Extract fitted values and observed values
+fitted_values <- result_K_scaled$summary.fitted.values[, "mean"]
+observed_values <- data$parks_percent_change_from_baseline_average
+
+# Compute residuals
+residuals <- observed_values - fitted_values
+
+# Plot residuals
+plot(fitted_values, residuals, main = "Residuals vs Fitted Values", 
+     xlab = "Fitted Values", ylab = "Residuals", pch = 16)
+abline(h = 0, col = "red")
+
+
+# Plot the fitted values as predictions
+plot(fitted_values, main = "Fitted Values (Predictions)", 
+     xlab = "Index", ylab = "Fitted Value", pch = 16)
+
+
+# Scatter plot of observed vs. fitted values
+plot(observed_values, fitted_values, 
+     xlab = "Observed Values", ylab = "Fitted Values", pch = 16)
+abline(0, 1, col = "red")  
+
+# Posterior Predictive Checks 
+
+# Generate simulated data (posterior predictive checks)
+simulated_data <- inla.posterior.sample(n = 1000, result)
+
+# Check summary statistics of simulated data against observed data
+summary(simulated_data)
+
+
+# Check trace plots for random effects or fixed effects
+plot(result$internal$random$time_index, type = "l", main = "Trace plot for time_index")
+
+print(result$internal$random$time_index)
